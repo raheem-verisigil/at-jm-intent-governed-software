@@ -31,11 +31,14 @@ exports.onExecutePostLogin = async (event, api) => {
     api.access.deny("Your AT-JM tenant has not been provisioned.");
     return;
   }
+  // The dashboard session is established from the ID token; protected API
+  // operations continue to require a separately validated API access token.
+  api.idToken.setCustomClaim("https://at-jm.ai/tenant_id", tenantId);
   api.accessToken.setCustomClaim("https://at-jm.ai/tenant_id", tenantId);
 };
 ```
 
-The API should also issue the `permissions` claim using Auth0 RBAC. If your tenant's token format differs, update the documented claim mapping before enabling access.
+The API should also issue the `permissions` claim using Auth0 RBAC. If your tenant's token format differs, update the documented claim mapping before enabling access. The login flow requests an ID token only and does not request this API as an audience; protected API bearer-token calls still require the API audience and the configured tenant/permission claims.
 
 ## 4. Add variables in Railway
 
