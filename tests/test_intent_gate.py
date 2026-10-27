@@ -35,6 +35,12 @@ class IntentGateTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("secrets/prod.env", report["prohibited_path_matches"])
 
+    def test_deleted_prohibited_path_is_blocked(self):
+        # Git diff must retain deleted paths so deleting a protected file cannot evade policy.
+        report = evaluate_changes(contract(), ["secrets/legacy.env"])
+        self.assertFalse(report["passed"])
+        self.assertIn("secrets/legacy.env", report["prohibited_path_matches"])
+
     def test_file_limit_is_enforced(self):
         report = evaluate_changes(contract(max_changed_files=1), ["a.py", "b.py"])
         self.assertFalse(report["passed"])

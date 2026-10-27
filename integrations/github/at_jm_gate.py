@@ -107,7 +107,7 @@ def changed_paths(base_ref: str, head_sha: str) -> list[str]:
         raise ValueError("Invalid base ref.")
     if not SHA_RE.fullmatch(head_sha):
         raise ValueError("Invalid head SHA.")
-    output = run_git("diff", "--name-only", "--diff-filter=ACMR", f"origin/{base_ref}...{head_sha}")
+    output = run_git("diff", "--name-only", "--no-renames", "--diff-filter=ACMD", f"origin/{base_ref}...{head_sha}")
     return sorted({line.strip() for line in output.splitlines() if line.strip()})
 
 
