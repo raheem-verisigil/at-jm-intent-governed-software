@@ -367,7 +367,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(403, {"error": "CSRF validation failed."})
             try: auth0_web.logout(self.headers.get("Cookie"))
             except Exception: pass
-            self.send_response(302); self.send_header("Location", "/"); self.send_header("Set-Cookie", auth0_web.clear_cookie()); self.send_header("Cache-Control", "no-store"); self.end_headers(); return
+            try: target = auth0_web.logout_url()
+            except auth0_web.LoginNotConfigured: target = "/"
+            self.send_response(302); self.send_header("Location", target); self.send_header("Set-Cookie", auth0_web.clear_cookie()); self.send_header("Cache-Control", "no-store"); self.end_headers(); return
         approval_match = re.fullmatch(r"/api/contracts/([A-Za-z0-9][A-Za-z0-9._-]{2,127})/approve", path)
         if path not in {"/api/contract/validate", "/api/policy/evaluate", "/api/contracts"} and not approval_match:
             return self.send_json(404, {"error": "Not found"})
