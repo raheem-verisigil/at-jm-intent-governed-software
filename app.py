@@ -1,4 +1,8 @@
 import hmac
+from http.cookies import SimpleCookie
+from urllib.parse import parse_qs
+
+import auth0_web
 import json
 import os
 import re
@@ -228,22 +232,85 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "Body must be valid JSON."})
             return None
 
-    def _authenticate(self, required_permission=None):
+    def _web_session(self):
         try:
-            identity = authn.verify_bearer_token(self.headers.get("Authorization"))
+            return auth0_web.get_session(self.headers.get("Cookie"))
+        except authn.AuthUnavailable:
+            return None
+        except authn.AuthRejected:
+            return None
+
+    def _authenticate(self, required_permission=None):
+        authorization = self.headers.get("Authorization")
+        try:
+            if authorization:
+                identity = authn.verify_bearer_token(authorization)
+                self._session_auth = False
+            else:
+                session = self._web_session()
+                if not session:
+                    self.send_json(401, {"error": "A valid authenticated identity is required."})
+                    return None
+                identity = session["identity"]
+                self._session_auth = True
+                self._session_csrf = session["csrf_token"]
+            if required_permission and required_permission not in identity["roles"]:
+                self.send_json(403, {"error": "Insufficient permission."})
+                return None
+            return identity
         except authn.AuthUnavailable:
             self.send_json(503, {"error": "Protected management API is not configured for OIDC authentication."})
             return None
         except authn.AuthRejected:
             self.send_json(401, {"error": "A valid authenticated identity and tenant claim are required."})
             return None
-        if required_permission and required_permission not in identity["roles"]:
-            self.send_json(403, {"error": "Insufficient permission."})
-            return None
-        return identity
+
+    def _csrf_valid(self):
+        if not getattr(self, "_session_auth", False):
+            return True
+        supplied = self.headers.get("X-CSRF-Token", "")
+        return bool(supplied and hmac.compare_digest(supplied, getattr(self, "_session_csrf", "")))
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == "/login":
+            try:
+                target = auth0_web.begin_login()
+                self.send_response(302); self.send_header("Location", target); self.send_header("Cache-Control", "no-store"); self.end_headers()
+            except auth0_web.LoginNotConfigured:
+                self.send_json(503, {"error": "Auth0 login is not configured yet. Follow docs/auth0-setup.md to configure the provider."})
+            return
+        if path == "/auth/callback":
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            if query.get("error"):
+                return self.send_json(401, {"error": "Auth0 login was not completed. Please try again."})
+            code = query.get("code", [""])[0]; state = query.get("state", [""])[0]
+            if not code or not state:
+                return self.send_json(400, {"error": "Missing login callback parameters."})
+            try:
+                sid, csrf, expires = auth0_web.finish_login(code, state)
+                self.send_response(302); self.send_header("Location", "/dashboard")
+                self.send_header("Set-Cookie", auth0_web.session_cookie(sid, expires))
+                self.send_header("Cache-Control", "no-store"); self.send_header("Referrer-Policy", "no-referrer"); self.end_headers()
+            except (auth0_web.LoginNotConfigured, auth0_web.LoginRejected, authn.AuthUnavailable, authn.AuthRejected):
+                self.send_json(401, {"error": "Login could not be verified. Check Auth0 settings and try again."})
+            return
+        if path == "/dashboard":
+            session = self._web_session()
+            if not session:
+                self.send_response(302); self.send_header("Location", "/login"); self.send_header("Cache-Control", "no-store"); self.end_headers(); return
+            try: body = (ROOT / "dashboard.html").read_bytes()
+            except OSError: return self.send_json(500, {"error": "Dashboard file unavailable."})
+            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff"); self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Frame-Options", "DENY"); self.end_headers(); self.wfile.write(body); return
+        if path == "/api/session":
+            session = self._web_session()
+            if not session: return self.send_json(401, {"error": "A valid session is required."})
+            claims = session["identity"]["claims"]
+            return self.send_json(200, {"subject": session["identity"]["subject"], "email": claims.get("email"), "csrf_token": session["csrf_token"], "expires_at": session["expires_at"]})
+        if path == "/logout":
+            self.send_response(302); self.send_header("Location", "/"); self.send_header("Cache-Control", "no-store"); self.end_headers(); return
         if path == "/api/contracts" or path.startswith("/api/contracts/"):
             if _rate_limited(self.client_address[0]):
                 return self.send_json(429, {"error": "Rate limit exceeded. Try again shortly."}, {"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)})
@@ -294,6 +361,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
+        if path == "/logout":
+            session = self._web_session()
+            if session and not hmac.compare_digest(self.headers.get("X-CSRF-Token", ""), session["csrf_token"]):
+                return self.send_json(403, {"error": "CSRF validation failed."})
+            try: auth0_web.logout(self.headers.get("Cookie"))
+            except Exception: pass
+            self.send_response(302); self.send_header("Location", "/"); self.send_header("Set-Cookie", auth0_web.clear_cookie()); self.send_header("Cache-Control", "no-store"); self.end_headers(); return
         approval_match = re.fullmatch(r"/api/contracts/([A-Za-z0-9][A-Za-z0-9._-]{2,127})/approve", path)
         if path not in {"/api/contract/validate", "/api/policy/evaluate", "/api/contracts"} and not approval_match:
             return self.send_json(404, {"error": "Not found"})
@@ -309,6 +383,8 @@ class Handler(BaseHTTPRequestHandler):
             identity = self._authenticate()
             if identity is None:
                 return
+            if not self._csrf_valid():
+                return self.send_json(403, {"error": "CSRF validation failed."})
             validated = validate_contract(payload)
             if not validated["valid"]:
                 return self.send_json(422, validated)
@@ -324,6 +400,8 @@ class Handler(BaseHTTPRequestHandler):
             identity = self._authenticate(required_permission)
             if identity is None:
                 return
+            if not self._csrf_valid():
+                return self.send_json(403, {"error": "CSRF validation failed."})
             if payload != {}:
                 return self.send_json(400, {"error": "Approval endpoint expects an empty JSON object."})
             contract_id = approval_match.group(1)
