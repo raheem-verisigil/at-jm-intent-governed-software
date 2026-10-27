@@ -1,9 +1,10 @@
 """Append-only, hash-chained decision metadata ledger for AT-JM.
 
-The ledger deliberately stores a digest of policy inputs rather than the raw
-payload. Mount ATJM_DATA_DIR on durable storage before using it for pilots.
-SQLite is intended for a single application replica; use PostgreSQL before
-horizontal scaling.
+Stores a digest of policy inputs rather than the raw payload. Mount
+ATJM_DATA_DIR on durable storage before using it for pilots. SQLite is for a
+single application replica; use PostgreSQL before horizontal scaling. A local
+hash chain detects edits and interior deletion/reordering, but not deletion of
+a tail without an independently retained checkpoint or external anchor.
 """
 from __future__ import annotations
 
@@ -57,11 +58,13 @@ def append_decision(decision: dict[str, Any], input_payload: Any) -> dict[str, A
         "event_id": decision["decision_id"],
         "timestamp": decision["timestamp"],
         "decision": decision["decision"],
+        "reason": decision.get("reason", ""),
         "input_sha256": input_digest,
         "schema_version": decision.get("schema_version", "0.1"),
     }
     event_json = _canonical(event)
-    with _connect() as connection:
+    connection = _connect()
+    try:
         connection.execute("BEGIN IMMEDIATE")
         last = connection.execute(
             "SELECT sequence, entry_hash FROM audit_events ORDER BY sequence DESC LIMIT 1"
@@ -74,15 +77,23 @@ def append_decision(decision: dict[str, Any], input_payload: Any) -> dict[str, A
             (event["event_id"], event_json, previous_hash, digest),
         )
         connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
     return {"sequence": sequence, "entry_hash": digest, "input_sha256": input_digest}
 
 
 def verify_chain() -> dict[str, Any]:
     """Recompute the entire chain; detect modified, removed, or reordered rows."""
-    with _connect() as connection:
+    connection = _connect()
+    try:
         rows = connection.execute(
             "SELECT sequence,event_id,event_json,previous_hash,entry_hash FROM audit_events ORDER BY sequence"
         ).fetchall()
+    finally:
+        connection.close()
     previous_hash = GENESIS
     expected_sequence = 1
     for row in rows:
