@@ -1,0 +1,29 @@
+name: AT-JM Intent Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  at-jm-intent-gate:
+    name: AT-JM / Intent Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Evaluate change against the approved base contract
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          ATJM_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python integrations/github/at_jm_gate.py
