@@ -1,0 +1,13 @@
+# Runtime data and local secrets
+.env
+.env.*
+!.env.example
+data/
+*.sqlite
+*.sqlite3
+*.db
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/

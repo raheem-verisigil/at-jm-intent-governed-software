@@ -18,6 +18,9 @@ class ContractApiIntegrationTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {
             "ATJM_DATA_DIR": self.tempdir.name,
             "ATJM_APPROVAL_PERMISSION": "atjm:contracts:approve",
+            "ATJM_OIDC_ISSUER": "https://issuer.example/",
+            "ATJM_OIDC_AUDIENCE": "at-jm-test-api",
+            "ATJM_OIDC_JWKS_URL": "https://issuer.example/.well-known/jwks.json",
         })
         self.env.start()
 
@@ -100,7 +103,7 @@ class ContractApiIntegrationTests(unittest.TestCase):
         self.assertEqual(approved["version"], 2)
 
     def test_missing_oidc_config_fails_closed(self):
-        with patch("app.authn.verify_bearer_token", side_effect=auth.AuthUnavailable("not configured")):
+        with patch.dict(os.environ, {}, clear=True):
             status, body = self.request("GET", "/api/contracts")
         self.assertEqual(status, 503)
         self.assertIn("not configured", body["error"])

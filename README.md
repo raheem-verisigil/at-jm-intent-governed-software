@@ -9,6 +9,8 @@ AT-JM is an early-stage runtime for expressing software-change intent, evaluatin
 - `POST /api/contract/validate` — basic contract-shape validation.
 - `POST /api/policy/evaluate` — bounded deterministic evaluation; records decision metadata.
 - `GET /api/admin/ledger/verify` — verifies the local audit hash chain; requires `X-ATJM-Admin-Token`.
+- Auth0 Universal Login using Authorization Code + PKCE, nonce/state checks, secure HttpOnly session cookies and server-side session storage.
+- Authenticated contract dashboard at `/dashboard` with tenant-scoped list/read/create-draft operations.
 - OIDC-protected contract APIs: `GET/POST /api/contracts`, `GET /api/contracts/{contract_id}`, `POST /api/contracts/{contract_id}/approve`. These return `503` until OIDC settings are configured.
 - Early GitHub Actions intent gate template in `integrations/github/`.
 - Commercial site and interactive policy demo at `/`.
@@ -51,4 +53,4 @@ See [GitHub Intent Gate setup](integrations/github/README.md). The current integ
 
 AT-JM is still an early-stage prototype and has not undergone an independent security audit. It does not execute code or actions, verify evidence provenance, or enforce controls on external deployment systems. The public policy demo accepts caller-supplied inputs; an `ALLOW` response is not authorization to execute a real action. Do not send secrets or confidential data.
 
-The OIDC contract API is the first authenticated management slice, not a complete identity rollout. Tenant provisioning, user invitations, a management UI, GitHub App credentials, PostgreSQL migration, external audit checkpoints, backup-restore drills and a security review remain before a broad production launch.
+The Auth0 login and dashboard are an initial integration, not a completed identity rollout. Tenant provisioning, user invitations, approval UI, GitHub App credentials, PostgreSQL migration, external audit checkpoints, backup-restore drills and a security review remain before a broad production launch.
