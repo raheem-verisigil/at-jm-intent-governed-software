@@ -191,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "ATJMRuntime"
     sys_version = ""
 
-    def send_json(self, status, obj):
+    def send_json(self, status, obj, extra_headers=None):
         body = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -201,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
         self.send_header("X-Frame-Options", "DENY")
+        for header, value in (extra_headers or {}).items():
+            self.send_header(header, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -263,8 +265,7 @@ class Handler(BaseHTTPRequestHandler):
         if path not in {"/api/contract/validate", "/api/policy/evaluate"}:
             return self.send_json(404, {"error": "Not found"})
         if _rate_limited(self.client_address[0]):
-            self.send_header("Retry-After", str(RATE_LIMIT_WINDOW_SECONDS))
-            return self.send_json(429, {"error": "Rate limit exceeded. Try again shortly."})
+            return self.send_json(429, {"error": "Rate limit exceeded. Try again shortly."}, {"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)})
         payload = self._read_json()
         if payload is None:
             return
