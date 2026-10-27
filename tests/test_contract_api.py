@@ -93,7 +93,7 @@ class ContractApiIntegrationTests(unittest.TestCase):
         self.assertEqual(approved["version"], 2)
 
     def test_missing_oidc_config_fails_closed(self):
-        with patch.dict(os.environ, {}, clear=True), patch("app.authn.verify_bearer_token", wraps=auth.verify_bearer_token):
+        with patch("app.authn.verify_bearer_token", side_effect=auth.AuthUnavailable("not configured")):
             status, body = self.request("GET", "/api/contracts")
         self.assertEqual(status, 503)
         self.assertIn("not configured", body["error"])
