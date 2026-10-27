@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "contract_id": "atjm-example-contract",
+  "status": "approved",
+  "intent": {
+    "statement": "Make a bounded application change while preserving protected production boundaries."
+  },
+  "policy": {
+    "prohibited_paths": [
+      "secrets/**",
+      "infra/production/**",
+      "deploy/production-credentials.*"
+    ],
+    "max_changed_files": 40
+  }
+}
