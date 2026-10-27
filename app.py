@@ -2,6 +2,7 @@ import json, os, re, time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 ROOT=Path(__file__).resolve().parent
 ACTIONS={"read_source","edit_candidate_code","run_tests_in_sandbox","deploy","delete","external","credentials","charge_real_customer","modify_production_credentials"}
 ENVIRONMENTS={"development","staging","production"}; RISKS={"low","medium","high"}; EVIDENCE={"passed","failed","missing","conflicting"}; RULES={"standard","noExternal","noProd"}
@@ -42,22 +43,24 @@ class Handler(BaseHTTPRequestHandler):
  def send_json(self,status,obj):
   b=json.dumps(obj,ensure_ascii=False,indent=2).encode();self.send_response(status);self.send_header("Content-Type","application/json; charset=utf-8");self.send_header("Content-Length",str(len(b)));self.send_header("X-Content-Type-Options","nosniff");self.send_header("Cache-Control","no-store");self.end_headers();self.wfile.write(b)
  def do_GET(self):
-  if self.path=="/api/health":return self.send_json(200,{"status":"ok","service":"AT-JM Promise Runtime","version":"0.1.0","capabilities":["contract_validation","bounded_policy_evaluation"],"execution_performed":False})
-  if self.path=="/api/demo-contract":return self.send_json(200,DEMO)
-  if self.path in {"/","/index.html"}:
+  path=urlsplit(self.path).path
+  if path=="/api/health":return self.send_json(200,{"status":"ok","service":"AT-JM Promise Runtime","version":"0.1.0","capabilities":["contract_validation","bounded_policy_evaluation"],"execution_performed":False})
+  if path=="/api/demo-contract":return self.send_json(200,DEMO)
+  if path in {"/","/index.html"}:
    try:
     b=(ROOT/"index.html").read_bytes();self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.send_header("Content-Length",str(len(b)));self.send_header("X-Content-Type-Options","nosniff");self.end_headers();self.wfile.write(b)
    except OSError:self.send_json(500,{"error":"Website file unavailable."})
    return
   self.send_json(404,{"error":"Not found"})
  def do_POST(self):
-  if self.path not in {"/api/contract/validate","/api/policy/evaluate"}:return self.send_json(404,{"error":"Not found"})
+  path=urlsplit(self.path).path
+  if path not in {"/api/contract/validate","/api/policy/evaluate"}:return self.send_json(404,{"error":"Not found"})
   try:
    n=int(self.headers.get("Content-Length","0"))
    if n<1 or n>1000000:return self.send_json(413 if n>1000000 else 400,{"error":"Body must be between 1 byte and 1 MB."})
    p=json.loads(self.rfile.read(n))
   except (ValueError,json.JSONDecodeError):return self.send_json(400,{"error":"Body must be valid JSON."})
-  if self.path=="/api/contract/validate":
+  if path=="/api/contract/validate":
    r=validate_contract(p);return self.send_json(200 if r["valid"] else 422,r)
   return self.send_json(200,evaluate(p))
  def log_message(self,fmt,*args):print("%s %s"%(self.log_date_time_string(),fmt%args))
