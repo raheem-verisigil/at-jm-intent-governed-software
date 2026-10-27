@@ -312,8 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             validated = validate_contract(payload)
             if not validated["valid"]:
                 return self.send_json(422, validated)
-            if payload.get("status") not in {"draft", "approved"}:
-                return self.send_json(422, {"valid": False, "errors": ["New contract versions must be submitted as draft."]})
+            if payload.get("status") != "draft":
+                return self.send_json(422, {"valid": False, "errors": ["New contract versions must be submitted with status draft."]})
             try:
                 record = contracts_store.create_draft(identity["tenant_id"], payload, identity["subject"])
             except Exception:
