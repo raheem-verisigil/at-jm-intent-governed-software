@@ -241,6 +241,9 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def _authenticate(self, required_permission=None):
+        if not (os.environ.get("ATJM_OIDC_ISSUER") and os.environ.get("ATJM_OIDC_AUDIENCE") and os.environ.get("ATJM_OIDC_JWKS_URL")):
+            self.send_json(503, {"error": "Protected management API is not configured for OIDC authentication."})
+            return None
         authorization = self.headers.get("Authorization")
         try:
             if authorization:
