@@ -1,1 +1,0 @@
-GitHub write access verified on 2026-10-27. This file is a temporary permission check and may be removed after the source push.
