@@ -17,7 +17,6 @@ class Auth0WebTests(unittest.TestCase):
             "ATJM_AUTH0_DOMAIN": "example.us.auth0.com",
             "ATJM_AUTH0_CLIENT_ID": "client-id",
             "ATJM_AUTH0_CLIENT_SECRET": "test-secret",
-            "ATJM_OIDC_AUDIENCE": "https://api.at-jm.ai",
             "ATJM_PUBLIC_ORIGIN": "https://at-jm-runtime-production.up.railway.app",
         }
         with patch.dict(os.environ, env, clear=True):
@@ -32,6 +31,7 @@ class Auth0WebTests(unittest.TestCase):
         self.assertTrue(params["code_challenge"][0])
         self.assertTrue(params["state"][0])
         self.assertTrue(params["nonce"][0])
+        self.assertNotIn("audience", params)
         self.assertNotIn("test-secret", url)
 
     def test_session_cookie_has_secure_httponly_samesite_flags(self):
