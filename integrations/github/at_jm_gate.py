@@ -130,7 +130,7 @@ def write_summary(report: dict[str, Any]) -> None:
 
 def main() -> int:
     base_ref = os.environ.get("GITHUB_BASE_REF", "")
-    head_sha = os.environ.get("GITHUB_SHA", "")
+    head_sha = os.environ.get("ATJM_HEAD_SHA") or os.environ.get("GITHUB_SHA", "")
     try:
         contract = read_base_contract(base_ref)
         paths = changed_paths(base_ref, head_sha)
