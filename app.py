@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import auth as authn
+import contracts_store
 from audit_ledger import append_decision, verify_chain
 
 ROOT = Path(__file__).resolve().parent
@@ -226,14 +228,44 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "Body must be valid JSON."})
             return None
 
+    def _authenticate(self, required_permission=None):
+        try:
+            identity = authn.verify_bearer_token(self.headers.get("Authorization"))
+        except authn.AuthUnavailable:
+            self.send_json(503, {"error": "Protected management API is not configured for OIDC authentication."})
+            return None
+        except authn.AuthRejected:
+            self.send_json(401, {"error": "A valid authenticated identity and tenant claim are required."})
+            return None
+        if required_permission and required_permission not in identity["roles"]:
+            self.send_json(403, {"error": "Insufficient permission."})
+            return None
+        return identity
+
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == "/api/contracts" or path.startswith("/api/contracts/"):
+            if _rate_limited(self.client_address[0]):
+                return self.send_json(429, {"error": "Rate limit exceeded. Try again shortly."}, {"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)})
+            identity = self._authenticate()
+            if identity is None:
+                return
+            if path == "/api/contracts":
+                return self.send_json(200, {"contracts": contracts_store.list_latest(identity["tenant_id"])})
+            match = re.fullmatch(r"/api/contracts/([A-Za-z0-9][A-Za-z0-9._-]{2,127})", path)
+            if match:
+                record = contracts_store.get_latest(identity["tenant_id"], match.group(1))
+                if record is None:
+                    return self.send_json(404, {"error": "Contract not found."})
+                return self.send_json(200, record)
+            return self.send_json(404, {"error": "Not found"})
         if path == "/api/health":
             return self.send_json(200, {
                 "status": "ok",
                 "service": "AT-JM Promise Runtime",
-                "version": "0.2.0",
-                "capabilities": ["contract_validation", "bounded_policy_evaluation", "decision_metadata_ledger"],
+                "version": "0.3.0",
+                "capabilities": ["contract_validation", "bounded_policy_evaluation", "decision_metadata_ledger", "tenant_scoped_contract_versions"],
+                "oidc_management_configured": bool(os.environ.get("ATJM_OIDC_ISSUER") and os.environ.get("ATJM_OIDC_AUDIENCE") and os.environ.get("ATJM_OIDC_JWKS_URL")),
                 "execution_performed": False,
             })
         if path == "/api/demo-contract":
@@ -262,7 +294,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        if path not in {"/api/contract/validate", "/api/policy/evaluate"}:
+        approval_match = re.fullmatch(r"/api/contracts/([A-Za-z0-9][A-Za-z0-9._-]{2,127})/approve", path)
+        if path not in {"/api/contract/validate", "/api/policy/evaluate", "/api/contracts"} and not approval_match:
             return self.send_json(404, {"error": "Not found"})
         if _rate_limited(self.client_address[0]):
             return self.send_json(429, {"error": "Rate limit exceeded. Try again shortly."}, {"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)})
@@ -272,6 +305,39 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/contract/validate":
             validated = validate_contract(payload)
             return self.send_json(200 if validated["valid"] else 422, validated)
+        if path == "/api/contracts":
+            identity = self._authenticate()
+            if identity is None:
+                return
+            validated = validate_contract(payload)
+            if not validated["valid"]:
+                return self.send_json(422, validated)
+            if payload.get("status") != "draft":
+                return self.send_json(422, {"valid": False, "errors": ["New contract versions must be submitted with status draft."]})
+            try:
+                record = contracts_store.create_draft(identity["tenant_id"], payload, identity["subject"])
+            except Exception:
+                return self.send_json(503, {"error": "Contract version could not be stored.", "retryable": True})
+            return self.send_json(201, record)
+        if approval_match:
+            required_permission = os.environ.get("ATJM_APPROVAL_PERMISSION", "atjm:contracts:approve")
+            identity = self._authenticate(required_permission)
+            if identity is None:
+                return
+            if payload != {}:
+                return self.send_json(400, {"error": "Approval endpoint expects an empty JSON object."})
+            contract_id = approval_match.group(1)
+            try:
+                record = contracts_store.approve_latest(identity["tenant_id"], contract_id, identity["subject"])
+            except LookupError:
+                return self.send_json(404, {"error": "Contract not found."})
+            except PermissionError:
+                return self.send_json(403, {"error": "A different authorized user must approve this contract."})
+            except ValueError as exc:
+                return self.send_json(409, {"error": str(exc)})
+            except Exception:
+                return self.send_json(503, {"error": "Contract approval could not be stored.", "retryable": True})
+            return self.send_json(200, record)
         decision = evaluate(payload)
         try:
             ledger_metadata = append_decision(decision, payload)
