@@ -263,8 +263,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {
                 "status": "ok",
                 "service": "AT-JM Promise Runtime",
-                "version": "0.2.0",
-                "capabilities": ["contract_validation", "bounded_policy_evaluation", "decision_metadata_ledger"],
+                "version": "0.3.0",
+                "capabilities": ["contract_validation", "bounded_policy_evaluation", "decision_metadata_ledger", "tenant_scoped_contract_versions"],
+                "oidc_management_configured": bool(os.environ.get("ATJM_OIDC_ISSUER") and os.environ.get("ATJM_OIDC_AUDIENCE") and os.environ.get("ATJM_OIDC_JWKS_URL")),
                 "execution_performed": False,
             })
         if path == "/api/demo-contract":
