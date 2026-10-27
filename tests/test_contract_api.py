@@ -76,6 +76,13 @@ class ContractApiIntegrationTests(unittest.TestCase):
         status, _ = self.request("GET", "/api/contracts")
         self.assertEqual(status, 401)
 
+    def test_caller_cannot_submit_contract_as_already_approved(self):
+        candidate = self.sample_contract()
+        candidate["status"] = "approved"
+        status, body = self.request("POST", "/api/contracts", "Bearer tenant-a-alice", candidate)
+        self.assertEqual(status, 422)
+        self.assertIn("draft", body["errors"][0])
+
     def test_contract_isolated_by_tenant(self):
         status, created = self.request("POST", "/api/contracts", "Bearer tenant-a-alice", self.sample_contract())
         self.assertEqual(status, 201)
